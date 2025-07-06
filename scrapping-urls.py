@@ -13,7 +13,7 @@ load_dotenv()
 
 # Step 1: Set up PostgreSQL connection
 conn = psycopg2.connect(
-    host = "db.mpoqjcnxttyppniovgqu.supabase.co",
+    host = os.getenv("POSTGRESQL_HOST"),
     port = 5432,
     database = "postgres",
     user = "postgres",
@@ -69,12 +69,17 @@ def load_eventbrite_events(url: str) -> list[str]:
             href = href.split("?")[0]
             insert_event(href)  # Insert the event link into the database
     
-# Step 6: Scrape Eventbrite event links from the first 20 pages of the "Paid Events in San Francisco" category
+# Step 6: Scrape Eventbrite event links from the first 20 pages of the "Paid Events in various Locations" category
 # Note: Adjust the range in the loop to scrape more pages if needed
-for i in range(1, 21):  # Scrape the first 20 pages
-    load_eventbrite_events(f"https://www.eventbrite.com/d/ca--san-francisco/paid--events/?page={i}&cur=USD")
-    print(f"Page {i} of 20 scraped")
-    time.sleep(10)  # Sleep for 10 seconds to avoid overwhelming the server
+# 
+locations = ['ga--atlanta','fl--miami','ca--los-angeles']
+for location in locations:
+    print(f"Starting to scrape events for location: {location}")
+    for i in range(1, 21):  # Scrape the first 20 pages
+        load_eventbrite_events(f"https://www.eventbrite.com/d/{location}/paid--events/?page={i}&cur=USD")
+        print(f"Page {i} of 20 scraped")
+        time.sleep(5)  # Sleep for 5 seconds to avoid overwhelming the server
+    print(f"Finished scraping events for location: {location}")
 
 cur.execute("SELECT COUNT(*) FROM schema_urls;")
 count = cur.fetchone()[0]
