@@ -73,37 +73,56 @@ _To democratize intelligent pricing for event organizers by providing data-drive
 
 ```mermaid
 graph TD
-    A[🕷️ Event URLs Collection] --> B[🗄️ PostgreSQL URLs Database]
-    B --> C[🔍 Event Details Extraction]
-    C --> D[🎛️ Dynamic Feature Parsing]
-    D --> E[🗄️ PostgreSQL Events Database]
-    E --> F[📊 Data Preprocessing]
-    F --> G[🧠 Machine Learning Model]
-    G --> H[💰 Price Predictions]
+    A(🕷️ Event URLs Collection) --> B[(🗄️ PostgreSQL<br/>URLs Database)]
+    B --> C{🔍 Event Details<br/>Extraction}
+    C --> D{{🎛️ Dynamic Feature<br/>Parsing}}
+    D ==> E[(🗄️ PostgreSQL<br/>Events Database)]
+    E --> F(📊 Data<br/>Preprocessing)
+    F --> G[🧠 Machine Learning<br/>Model]
+    G --> H((💰 Price<br/>Predictions))
 
-    subgraph "Dynamic Parsing Modules"
-        D1[⏰ DateTime Parser]
-        D2[📍 Location Parser]
-        D3[💵 Price Parser]
-        D4[📝 Description Parser]
+    subgraph Parsing ["🎛️ Dynamic Parsing Modules"]
+        D1(⏰ DateTime<br/>Parser)
+        D2(📍 Location<br/>Parser)
+        D3(💵 Price<br/>Parser)
+        D4(📝 Description<br/>Parser)
     end
 
-    D --> D1
-    D --> D2
-    D --> D3
-    D --> D4
+    D ==> D1
+    D ==> D2
+    D ==> D3
+    D ==> D4
 
-    subgraph "External APIs"
-        API1[🤖 OpenAI API]
-        API2[🗺️ Google Maps API]
-        API3[📈 US Census API]
-        API4[⚡ Redis Cache]
+    subgraph APIs ["🌐 External APIs"]
+        API1{🤖 OpenAI<br/>API}
+        API2{🗺️ Google Maps<br/>API}
+        API3{📈 US Census<br/>API}
+    end
+
+    subgraph Cache ["⚡ Caching Layer"]
+        REDIS[⚡ Redis Cache<br/>30-day TTL]
     end
 
     D4 -.-> API1
-    D2 -.-> API2
-    D2 -.-> API3
-    D2 -.-> API4
+    D2 -.-> REDIS
+    REDIS -.-> API2
+    REDIS -.-> API3
+
+    classDef process fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef database fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef api fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef parser fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef decision fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef result fill:#fff8e1,stroke:#fbc02d,stroke-width:2px
+    classDef cache fill:#e1f5fe,stroke:#0288d1,stroke-width:3px
+
+    class A,F process
+    class B,E database
+    class API1,API2,API3 api
+    class D1,D2,D3,D4 parser
+    class C,D decision
+    class G,H result
+    class REDIS cache
 ```
 
 ---
