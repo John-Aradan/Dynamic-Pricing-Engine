@@ -1,12 +1,13 @@
-import hashlib
-import time
 from dotenv import load_dotenv
-import re
 import os
-from bs4 import BeautifulSoup
-import requests
+from openai import RateLimitError
 import psycopg2
-from urllib.parse import urlparse
+from extract_event_details import extract_event_details
+import time
+from datetime import datetime
+from tqdm import tqdm
+import time
+from collections import deque
 
 # Step 0: Load environment variables from .env file
 load_dotenv()
@@ -20,68 +21,86 @@ conn = psycopg2.connect(
     password = os.getenv("POSTGRESQL_PASSWORD")
 )
 
-# Step 2: Create a PostgreSQL table to store events
 cur = conn.cursor()
+
+# Uncomment and run the following code to reset the status of all URLs to 'Pending' and reset attempts to 0
+# cur.execute("""
+#     UPDATE schema_urls
+#     SET status = 'Pending',
+#         no_attempts = 0;
+# """)
+# conn.commit()
+# print("✅ Reset all rows in schema_urls to Pending with 0 attempts.")
+
+cur.execute("SELECT * FROM schema_urls WHERE status IN ('Pending', 'Failed') AND no_attempts = 1;")
+rows = cur.fetchall()
+
+print(len(rows), "rows found in schema_urls table.")
+
+# Step 2: Create a PostgreSQL table to store events
 with open("schema-events.sql", "r") as f:
     cur.execute(f.read())
 conn.commit()
 print("Table 'schema_events' created or already exists.")
 
-# Step 2.1: Set up headers for web scraping
-headers = {
-        "User-Agent": (                                     # This is a common user agent string for web scraping
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/114.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "en-US,en;q=0.9",    # Accept language header to specify English
-        "Accept-Encoding": "gzip, deflate, br", # Accept encoding header to handle compressed responses
-        "Referer": "https://www.google.com/"    # Referer header to indicate the source of the request
-    }
+# track time stamp of last 3 OpenAI API calls
+last_api_calls = deque(maxlen=3)
 
-# Step 3: Create a custom ID generator for events
-def generate_event_id(title):
-    return hashlib.sha256(title.encode('utf-8')).hexdigest()[:8]
+# create a function to check wait if 3 API calls have been made in the last 60 seconds
+def wait_for_api_call():
+    if len(last_api_calls) < 3:
+        return
+    now = time.time()
+    elapsed = now - last_api_calls[0]
+    if elapsed < 60:
+        wait_time = 60 - elapsed
+        print(f"[RateLimit] Waiting {wait_time:.2f}s to respect OpenAI limit...")
+        time.sleep(wait_time)
+    last_api_calls.append(now)
 
-# Step 4: Function to insert event details into the PostgreSQL table
-def insert_event(event):
-    id = generate_event_id(event['title'])
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO schema_events (id, title, day_of_week, time_of_day, location_city, venue_zone_type)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (id) DO NOTHING;
-    """, (id, event['title'], event['day_of_week'], event['time_of_day'], event['location_city'], event['venue_zone_type']))
-    conn.commit()
+for idx, row in enumerate(tqdm(rows, desc="Processing events"), start=0):
+    id = row[0]
+    url = row[1]
+    attempts = row[3]
 
-# Step 5: Extract event details from the url for Eventbrite.com
-def extract_event_details_eventbrite(url: str) -> dict:
+    try:
+        wait_for_api_call()
+        start_time = time.time()
+        event = extract_event_details(id,url)
+        end_time = time.time()
+        print(f"Extracted event: {event['title']} in {end_time - start_time:.2f} seconds")
 
-    parsed = urlparse(url)
-    if parsed.netloc not in ("www.eventbrite.com", "eventbrite.com"):
-        return {}
-    resp = requests.get(url, headers=headers)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "lxml")
+        # Insert event into the database
+        data_start_time = time.time()
+        keys = ', '.join(event.keys())
+        values = ', '.join(['%s'] * len(event))
+        insert_query = f"INSERT INTO schema_events ({keys}) VALUES ({values}) ON CONFLICT (id) DO NOTHING;"
+        cur.execute(insert_query, tuple(event.values()))
 
-    event = {}
-    title = soup.find("h1", class_=re.compile(r"event-title css-.*"))
-    if not title:
-        return {}
-    event['title'] = title.get_text(strip=True())
+        # Update the status in schema_urls
+        cur.execute("""UPDATE schema_urls 
+                    SET status = 'Success', no_attempts = no_attempts + 1, last_attempt = %s, reason = 'NA'
+                    WHERE id = %s;
+                    """, (datetime.now(), id))
+        conn.commit()
+        data_end_time = time.time()
+        print(f"Inserted event: {event['title']} in {data_end_time - data_start_time:.2f} seconds")
+
+    except RateLimitError as e:
+        # Attempt to read the recommended wait time
+        retry_after = getattr(e, 'retry_after', 60)
+        print(f"[RateLimit] Error: {e}. Waiting for {retry_after} seconds before retrying...")
+        time.sleep(retry_after)
+        continue
     
-    date = soup.find("div", attrs={"data-testid": "display-date-container"})
-    if not date:
-        return {}
-    event['date'] = date.get_text(strip=True())
-    
+    except Exception as e:
 
-    location = soup.find("div", class_="location-info__address") # Find the address div
-    if location:
-        address = " ".join(list(location.stripped_strings)[1:2]) # Get the second string in the stripped strings
-    print(address)
-    cost = soup.find("div", class_="conversion-bar__body")
-    if cost:
-        print(cost.get_text(strip=True()))
-    event_description = soup.find("div", class_="eds-l-mar-bot-12 structured-content").get_text(separator="\n", strip=True)
-    print(event_description)
+        print(f"[ERROR] Failed to extract event from {url}: {e}")
+        
+        new_status = 'Dropped' if attempts >= 6 else 'Failed'
+        cur.execute("""UPDATE schema_urls 
+                    SET status = %s, no_attempts = no_attempts + 1, last_attempt = %s, reason = %s
+                    WHERE id = %s;
+                    """, (new_status, datetime.now(), str(e), id))
+        conn.commit()
+        continue

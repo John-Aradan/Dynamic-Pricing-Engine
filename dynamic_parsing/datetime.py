@@ -2,6 +2,9 @@ from dateparser.search import search_dates
 from dateparser.date import DateDataParser
 import pytz
 import re
+from pydantic import BaseModel
+from pydantic import ValidationError
+from datetime import datetime
 
 time_zones = ['PST', 'PDT', 'MST', 'MDT', 'CST', 'CDT', 'EST', 'EDT']
 months = ["January", "February", "March", "April", "May", "June",
@@ -28,26 +31,58 @@ def clean_single_day_range(date):
 
     return full_start, full_end
 
-def is_valid_datetime_result(start, end=None):
+def is_valid_datetime_result(start, end):
     try:
-        start = start[0][1]
-        end = end[0][1]
-        if not (1900 <= start.year <= 2100):
-            return False
-        if end and start > end:
-            return False
-        return True
+        if end is not None:
+            start = start[0][1]
+            end = end[0][1]
+            if not (1900 <= start.year <= 2100):
+                return False
+            if end and start > end:
+                return False
+            return True
+        else:
+            start = start[0][1]
+            if not (1900 <= start.year <= 2100):
+                return False
+            return True
     except Exception:
         return False
+            
 def get_time_of_day(hour):
     if 5 <= hour < 12:
-        return 'morning'
+        return 'Morning'
     elif 12 <= hour < 17:
-        return 'afternoon'
+        return 'Afternoon'
     elif 17 <= hour < 21:
-        return 'evening'
+        return 'Evening'
     else:
-        return 'night'
+        return 'Night'
+    
+def get_event_season(dt):
+    month = dt.month
+    day = dt.day
+    year = dt.year
+
+     # Fixed-date holidays
+    if month == 12 and day >= 20:
+        return "Christmas"
+    elif month == 1 and day <= 3:
+        return "New Year"
+    elif month == 10 and 28 <= day <= 31:
+        return "Halloween"
+    elif month == 2 and 12 <= day <= 15:
+        return "Valentine's"
+    elif month == 7 and day in range(2, 6):
+        return "Independence Day"
+    elif month == 11 and 22 <= day <= 28:
+        return "Thanksgiving"
+    
+    # Seasonal buckets
+    elif month in [6, 7, 8]:
+        return "Summer"
+    
+    return None
 
 def build_dict(start, end, timing_type):
 
@@ -61,6 +96,8 @@ def build_dict(start, end, timing_type):
     time_of_day = get_time_of_day(dt_start.hour)
     day_of_week = dt_start.weekday()
 
+    season = get_event_season(dt_start.date())
+
     return {
         "local_start": dt_start,
         "utc_start": utc_start,
@@ -69,20 +106,35 @@ def build_dict(start, end, timing_type):
         "timing_type": timing_type,
         "duration": duration,
         "time_of_day": time_of_day,
-        "day_of_week": day_of_week
+        "day_of_week": day_of_week,
+        "event_season": season
     }
 
+class DateTimeFeatures(BaseModel):
+    local_start: datetime # type: ignore
+    utc_start: datetime  # type: ignore
+    local_end: datetime | None  # type: ignore
+    utc_end: datetime | None    # type: ignore
+    timing_type: str
+    duration: int | None
+    time_of_day: str
+    day_of_week: int
+    event_season: str | None
 
-def parse_event_datetime(date):
+def parse_datetime(date):
     try:
         
         timing_type = "None"
         
         date = date.split(",")[-1].strip().replace(" ·","")
         tiz = date.split(" ")[-1]
-        for tz in time_zones:
-            date = date.replace(tz, "")
 
+        # if timezone information is not there then return none
+        if tiz not in time_zones:
+            return None
+        for tiz in time_zones:
+            date = date.replace(tiz, "")
+        
         start = None
         end = None
 
@@ -113,7 +165,16 @@ def parse_event_datetime(date):
     except Exception:
         return None
 
+def parse_event_datetime(datetime: str):
+    raw = parse_datetime(datetime)
+    try:
+        dt = DateTimeFeatures(**raw)
+    except ValidationError as e:
+        print("Validation failed:", e.errors())
+    return dt.model_dump()
+
 if __name__ == "__main__":
-    test_date = "Saturday, July 26 · 2:30 - 6pm PDT"
+    test_date = "Saturday, July 26 · 2:30 - 6pm CDT"
     datetime = parse_event_datetime(test_date)
-    print(datetime.get("local_start"))
+    for key in datetime.keys():
+        print(f"{key}: {datetime.get(key)}")

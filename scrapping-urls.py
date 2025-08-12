@@ -46,7 +46,7 @@ def insert_event(url):
 def load_eventbrite_events(url: str) -> list[str]:
     parsed = urlparse(url)
     if parsed.netloc not in ("www.eventbrite.com", "eventbrite.com"):
-        return []
+        return
     headers = {
         "User-Agent": (                                     # This is a common user agent string for web scraping
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -57,22 +57,26 @@ def load_eventbrite_events(url: str) -> list[str]:
         "Accept-Encoding": "gzip, deflate, br", # Accept encoding header to handle compressed responses
         "Referer": "https://www.google.com/"    # Referer header to indicate the source of the request
     }
-    resp = requests.get(url, headers=headers)
-    resp.raise_for_status()
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
 
-    soup = BeautifulSoup(resp.text, "lxml")
+        soup = BeautifulSoup(resp.text, "lxml")
 
-    # Find all links that match the Eventbrite event URL pattern ("https://www.eventbrite.com/e/rooftop-party-w-shingo-nakamura-at-hotel-via-tickets-1267566137439?aff=ebdssbdestsearch")
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if re.match(r"https://www\.eventbrite\.com/e/.*", href):
-            href = href.split("?")[0]
-            insert_event(href)  # Insert the event link into the database
-    
+        # Find all links that match the Eventbrite event URL pattern ("https://www.eventbrite.com/e/rooftop-party-w-shingo-nakamura-at-hotel-via-tickets-1267566137439?aff=ebdssbdestsearch")
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if re.match(r"https://www\.eventbrite\.com/e/.*", href):
+                href = href.split("?")[0]
+                insert_event(href)  # Insert the event link into the database
+            
+    except Exception as e:
+        print(f"Error occurred while loading Eventbrite events: {e}")
+
 # Step 6: Scrape Eventbrite event links from the first 20 pages of the "Paid Events in various Locations" category
 # Note: Adjust the range in the loop to scrape more pages if needed
 # 
-locations = ['ga--atlanta','fl--miami','ca--los-angeles']
+locations = ['ca--san-francisco','ny--new-york','il--chicago','ga--atlanta','fl--miami','ca--los-angeles']
 for location in locations:
     print(f"Starting to scrape events for location: {location}")
     for i in range(1, 21):  # Scrape the first 20 pages
