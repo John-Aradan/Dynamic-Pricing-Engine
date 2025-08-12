@@ -233,8 +233,6 @@ Dynamic-Events/
    cd Dynamic-Pricing-Engine
    ```
 
-````
-
 2. **Install Dependencies**
 
    ```bash
