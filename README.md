@@ -1,8 +1,12 @@
 # 🎯 Dynamic Pricing Engine for Events
 
+<div align="center">
+
 [![Python](https://img.shields.io/badge/Python-3.13-blue.svg)](https://python.org)
 [![Machine Learning](https://img.shields.io/badge/ML-Random%20Forest-green.svg)](https://scikit-learn.org)
 [![Data Source](https://img.shields.io/badge/Data-Eventbrite-orange.svg)](https://eventbrite.com)
+
+</div>
 
 > **🚀 An intelligent event pricing system that leverages machine learning to analyze and predict optimal ticket prices based on comprehensive event and location data.**
 
@@ -556,4 +560,3 @@ Please use GitHub Issues with appropriate labels:
 _Transforming event pricing through intelligent data analysis_
 
 </div>
-````
